@@ -1,0 +1,18 @@
+{
+  "name": "dojoengine",
+  "owner" : {
+    "name": "Cartridge Engineering",
+    "email": "hello@cartridge.gg"
+  },
+  "plugins": [
+    {
+      "name": "book",
+      "source": {
+        "source": "github",
+        "repo": "dojoengine/book"
+      },
+      "description": "Comprehensive toolkit for building provable applications on Starknet with Dojo. Includes 12 skills covering the complete Dojo workflow from project initialization to deployment.",
+      "repository": "https://github.com/dojoengine/book/tree/main/.claude-plugin"
+    }
+  ]
+}
