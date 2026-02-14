@@ -1,78 +1,30 @@
 ---
 name: dojo-token
-description: Implement ERC20 and ERC721 token standards in Dojo using Origami library. Use when adding fungible tokens, NFTs, or token-based game mechanics.
-allowed-tools: Read, Write, Edit, Glob, Grep
+description: Implement, deploy, and index ERC20 and ERC721 tokens in Dojo. Use when adding token contracts, deploying them, or configuring Torii to index balances and transfers.
+allowed-tools: Read, Write, Edit, Bash, Grep, Glob
 ---
 
-# Dojo Token Standards
+# Dojo Tokens
 
-Implement ERC20 fungible tokens and ERC721 NFTs in your Dojo game using the Origami library.
+Implement ERC20/ERC721 tokens in Cairo, deploy them alongside your Dojo world, and configure Torii to index balances, transfers, and metadata.
 
 ## When to Use This Skill
 
 - "Implement ERC20 token for game currency"
 - "Create NFT items with ERC721"
-- "Add token standard to my game"
+- "Deploy an ERC20 token with my world"
+- "Index token balances with Torii"
+- "Query token transfers"
 - "Use Origami for tokens"
 
 ## What This Skill Does
 
-Implements token standards:
-- ERC20 fungible tokens (currency, resources)
-- ERC721 non-fungible tokens (items, characters)
-- Token minting and burning
-- Transfer mechanics
-- Balance tracking
-- Integration with Origami library
-
-## Quick Start
-
-**ERC20 (fungible):**
-```
-"Implement ERC20 token for gold currency"
-```
-
-**ERC721 (NFT):**
-```
-"Create ERC721 for equipment items"
-```
-
-**With Origami:**
-```
-"Use Origami library to add token support"
-```
-
-## Token Standards
-
-### ERC20 - Fungible Tokens
-
-For interchangeable assets:
-- Game currency (gold, gems)
-- Resources (wood, stone)
-- Experience points
-- Reputation/score
-
-**Properties:**
-- Divisible (can have fractions)
-- Interchangeable (any token = any other)
-- Track balances per account
-
-### ERC721 - Non-Fungible Tokens
-
-For unique assets:
-- Character NFTs
-- Equipment/items
-- Land plots
-- Achievements
-
-**Properties:**
-- Unique (each has token ID)
-- Indivisible (whole units only)
-- Individual ownership tracking
+- Implement ERC20 fungible tokens and ERC721 NFTs in Cairo
+- Deploy token contracts as external contracts via `sozo migrate`
+- Configure Torii to index token balances, transfers, and metadata
+- Query token data via SQL and client SDKs
 
 ## Using Origami Library
-
-### Installation
 
 Add to `Scarb.toml`:
 ```toml
@@ -80,24 +32,16 @@ Add to `Scarb.toml`:
 origami_token = { git = "https://github.com/dojoengine/origami", tag = "v1.0.0" }
 ```
 
-### Origami Components
+Origami provides reusable token components following standard interfaces.
+Refer to the [Origami documentation](https://github.com/dojoengine/origami) for the latest API.
 
-Origami provides reusable token components:
-- `Balance` - Token balances
-- `ERC20Allowance` - Spending approvals
-- `ERC20Metadata` - Token info
-- `ERC721Owner` - NFT ownership
-- `ERC721TokenApproval` - NFT approvals
+## Simple Token Implementation
 
-## ERC20 Implementation
+You can implement tokens using standard Dojo models without Origami.
 
-### Basic ERC20 Model
+### ERC20-like Currency
 
 ```cairo
-use origami_token::components::token::erc20::erc20_balance::{
-    ERC20Balance, ERC20BalanceTrait
-};
-
 #[derive(Copy, Drop, Serde)]
 #[dojo::model]
 pub struct Gold {
@@ -105,68 +49,44 @@ pub struct Gold {
     pub player: ContractAddress,
     pub amount: u256,
 }
-```
 
-### ERC20 System
-
-```cairo
-use dojo::model::{ModelStorage, ModelValueStorage};
-use origami_token::components::token::erc20::erc20_balance::ERC20Balance;
-
-#[dojo::interface]
-trait IGoldToken {
-    fn mint(ref self: ContractState, to: ContractAddress, amount: u256);
-    fn transfer(ref self: ContractState, to: ContractAddress, amount: u256);
-    fn balance_of(self: @ContractState, account: ContractAddress) -> u256;
+#[starknet::interface]
+trait IGoldToken<T> {
+    fn mint(ref self: T, to: ContractAddress, amount: u256);
+    fn transfer(ref self: T, to: ContractAddress, amount: u256);
+    fn balance_of(self: @T, account: ContractAddress) -> u256;
 }
 
 #[dojo::contract]
 mod gold_token {
-    use super::IGoldToken;
+    use super::{IGoldToken, Gold};
+    use starknet::{ContractAddress, get_caller_address};
+    use dojo::model::ModelStorage;
 
     #[abi(embed_v0)]
     impl GoldTokenImpl of IGoldToken<ContractState> {
         fn mint(ref self: ContractState, to: ContractAddress, amount: u256) {
             let mut world = self.world_default();
 
-            // Get current balance
             let mut balance: Gold = world.read_model(to);
-
-            // Add amount
             balance.amount += amount;
-
-            // Save
             world.write_model(@balance);
-
-            // Emit event
-            world.emit_event(@TokenMinted { to, amount });
         }
 
-        fn transfer(
-            ref self: ContractState,
-            to: ContractAddress,
-            amount: u256
-        ) {
+        fn transfer(ref self: ContractState, to: ContractAddress, amount: u256) {
             let mut world = self.world_default();
             let from = get_caller_address();
 
-            // Get balances
             let mut from_balance: Gold = world.read_model(from);
             let mut to_balance: Gold = world.read_model(to);
 
-            // Check sufficient balance
             assert(from_balance.amount >= amount, 'insufficient balance');
 
-            // Transfer
             from_balance.amount -= amount;
             to_balance.amount += amount;
 
-            // Save
             world.write_model(@from_balance);
             world.write_model(@to_balance);
-
-            // Emit event
-            world.emit_event(@TokenTransferred { from, to, amount });
         }
 
         fn balance_of(self: @ContractState, account: ContractAddress) -> u256 {
@@ -175,39 +95,17 @@ mod gold_token {
             balance.amount
         }
     }
-}
-```
 
-### ERC20 With Origami
-
-Using Origami components:
-```cairo
-use origami_token::components::token::erc20::erc20_balance::{
-    ERC20Balance, ERC20BalanceTrait
-};
-
-#[dojo::contract]
-mod gold_token {
-    fn transfer(ref self: ContractState, to: ContractAddress, amount: u256) {
-        let mut world = self.world_default();
-        let from = get_caller_address();
-
-        // Use Origami trait
-        let mut from_balance: ERC20Balance = world.read_model(from);
-        let mut to_balance: ERC20Balance = world.read_model(to);
-
-        // Origami provides safe transfer
-        from_balance.transfer(ref to_balance, amount);
-
-        world.write_model(@from_balance);
-        world.write_model(@to_balance);
+    #[generate_trait]
+    impl InternalImpl of InternalTrait {
+        fn world_default(self: @ContractState) -> dojo::world::WorldStorage {
+            self.world(@"my_game")
+        }
     }
 }
 ```
 
-## ERC721 Implementation
-
-### Basic ERC721 Model
+### ERC721-like NFT
 
 ```cairo
 #[derive(Copy, Drop, Serde)]
@@ -219,43 +117,35 @@ pub struct Weapon {
     pub damage: u32,
     pub rarity: u8,
 }
-```
 
-### ERC721 System
-
-```cairo
-#[dojo::interface]
-trait IWeaponNFT {
-    fn mint(ref self: ContractState, to: ContractAddress, damage: u32) -> u256;
-    fn transfer(ref self: ContractState, to: ContractAddress, token_id: u256);
-    fn owner_of(self: @ContractState, token_id: u256) -> ContractAddress;
+#[starknet::interface]
+trait IWeaponNFT<T> {
+    fn mint(ref self: T, to: ContractAddress, damage: u32) -> u256;
+    fn transfer(ref self: T, to: ContractAddress, token_id: u256);
+    fn owner_of(self: @T, token_id: u256) -> ContractAddress;
 }
 
 #[dojo::contract]
 mod weapon_nft {
-    use super::IWeaponNFT;
+    use super::{IWeaponNFT, Weapon};
+    use starknet::{ContractAddress, get_caller_address};
+    use dojo::model::ModelStorage;
 
     #[abi(embed_v0)]
     impl WeaponNFTImpl of IWeaponNFT<ContractState> {
         fn mint(ref self: ContractState, to: ContractAddress, damage: u32) -> u256 {
             let mut world = self.world_default();
 
-            // Generate unique token ID
             let token_id: u256 = world.uuid().into();
 
-            // Create NFT
             let weapon = Weapon {
                 token_id,
                 owner: to,
                 damage,
-                rarity: calculate_rarity(damage),
+                rarity: 1,
             };
 
             world.write_model(@weapon);
-
-            // Emit event
-            world.emit_event(@NFTMinted { to, token_id });
-
             token_id
         }
 
@@ -263,18 +153,11 @@ mod weapon_nft {
             let mut world = self.world_default();
             let from = get_caller_address();
 
-            // Get NFT
             let mut weapon: Weapon = world.read_model(token_id);
-
-            // Check ownership
             assert(weapon.owner == from, 'not owner');
 
-            // Transfer
             weapon.owner = to;
             world.write_model(@weapon);
-
-            // Emit event
-            world.emit_event(@NFTTransferred { from, to, token_id });
         }
 
         fn owner_of(self: @ContractState, token_id: u256) -> ContractAddress {
@@ -283,235 +166,165 @@ mod weapon_nft {
             weapon.owner
         }
     }
-}
-```
 
-## Token Patterns
-
-### In-Game Currency (ERC20)
-
-```cairo
-// Gold token model
-#[derive(Copy, Drop, Serde)]
-#[dojo::model]
-pub struct Gold {
-    #[key]
-    pub player: ContractAddress,
-    pub amount: u256,
-}
-
-// Award gold for completing quest
-fn complete_quest(ref self: ContractState, player: ContractAddress) {
-    let mut world = self.world_default();
-
-    // Get current gold
-    let mut gold: Gold = world.read_model(player);
-
-    // Award 100 gold
-    gold.amount += 100;
-
-    world.write_model(@gold);
-}
-
-// Spend gold to buy item
-fn buy_item(ref self: ContractState, item_id: u32) {
-    let mut world = self.world_default();
-    let player = get_caller_address();
-
-    // Get gold balance
-    let mut gold: Gold = world.read_model(player);
-
-    // Check price
-    let item_price = get_item_price(item_id);
-    assert(gold.amount >= item_price, 'insufficient gold');
-
-    // Deduct gold
-    gold.amount -= item_price;
-    world.write_model(@gold);
-
-    // Give item
-    give_item(player, item_id);
-}
-```
-
-### Equipment NFTs (ERC721)
-
-```cairo
-// Weapon NFT model
-#[derive(Copy, Drop, Serde)]
-#[dojo::model]
-pub struct Weapon {
-    #[key]
-    pub token_id: u256,
-    pub owner: ContractAddress,
-    pub weapon_type: u8,  // 0=sword, 1=axe, 2=bow
-    pub damage: u32,
-    pub durability: u32,
-}
-
-// Craft new weapon
-fn craft_weapon(ref self: ContractState, weapon_type: u8) -> u256 {
-    let mut world = self.world_default();
-    let player = get_caller_address();
-
-    // Check materials
-    require_materials(player, weapon_type);
-
-    // Create weapon NFT
-    let token_id = world.uuid().into();
-    let weapon = Weapon {
-        token_id,
-        owner: player,
-        weapon_type,
-        damage: calculate_damage(weapon_type),
-        durability: 100,
-    };
-
-    world.write_model(@weapon);
-    token_id
-}
-
-// Equip weapon
-fn equip_weapon(ref self: ContractState, token_id: u256) {
-    let mut world = self.world_default();
-    let player = get_caller_address();
-
-    // Check ownership
-    let weapon: Weapon = world.read_model(token_id);
-    assert(weapon.owner == player, 'not owner');
-
-    // Equip
-    let mut equipment: Equipment = world.read_model(player);
-    equipment.weapon_id = token_id;
-    world.write_model(@equipment);
-}
-```
-
-### Resource Tokens (ERC20)
-
-```cairo
-// Multiple resource types
-#[derive(Copy, Drop, Serde)]
-#[dojo::model]
-pub struct Resources {
-    #[key]
-    pub player: ContractAddress,
-    pub wood: u256,
-    pub stone: u256,
-    pub iron: u256,
-}
-
-// Gather resources
-fn gather(ref self: ContractState, resource_type: u8) {
-    let mut world = self.world_default();
-    let player = get_caller_address();
-
-    let mut resources: Resources = world.read_model(player);
-
-    match resource_type {
-        0 => resources.wood += 10,
-        1 => resources.stone += 10,
-        2 => resources.iron += 5,
-        _ => panic!("invalid resource"),
+    #[generate_trait]
+    impl InternalImpl of InternalTrait {
+        fn world_default(self: @ContractState) -> dojo::world::WorldStorage {
+            self.world(@"my_game")
+        }
     }
-
-    world.write_model(@resources);
 }
 ```
 
 ## Token Events
 
-```cairo
-#[derive(Copy, Drop, Serde)]
-#[dojo::event]
-pub struct TokenMinted {
-    pub to: ContractAddress,
-    pub amount: u256,
-}
+Emit events so Torii and clients can track token operations:
 
+```cairo
 #[derive(Copy, Drop, Serde)]
 #[dojo::event]
 pub struct TokenTransferred {
+    #[key]
     pub from: ContractAddress,
+    #[key]
     pub to: ContractAddress,
     pub amount: u256,
 }
 
-#[derive(Copy, Drop, Serde)]
-#[dojo::event]
-pub struct NFTMinted {
-    pub to: ContractAddress,
-    pub token_id: u256,
-}
+// Emit in your functions
+world.emit_event(@TokenTransferred { from, to, amount });
+```
 
-#[derive(Copy, Drop, Serde)]
-#[dojo::event]
-pub struct NFTTransferred {
-    pub from: ContractAddress,
-    pub to: ContractAddress,
-    pub token_id: u256,
+## Deploying Token Contracts
+
+Token contracts are deployed as **external contracts** alongside your Dojo world.
+See `dojo-deploy` skill for general deployment workflow.
+
+### Add to Scarb.toml
+
+```toml
+[[target.starknet-contract]]
+build-external-contracts = [
+    "dojo::world::world_contract::world",
+    "tokens::models::m_ERC20Token"
+]
+```
+
+### Configure in Profile
+
+In `dojo_dev.toml`, define the token as an external contract:
+
+```toml
+[[external_contracts]]
+contract_name = "ERC20Token"
+instance_name = "GoldToken"
+salt = "1"
+constructor_data = [
+    "str:Gold Coin",                # Token name
+    "sstr:GOLD",                    # Symbol
+    "u256:1000000000000000000",     # Total supply (1e18)
+    "0x1234567890abcdef..."         # Owner address
+]
+```
+
+Add more `[[external_contracts]]` blocks for additional tokens.
+Deploy with `sozo build && sozo migrate`.
+Note the contract addresses from the output — you need them for Torii.
+
+## Indexing Tokens with Torii
+
+Torii indexes ERC token contracts separately from Dojo world state.
+You must explicitly tell Torii which contracts to watch.
+See `dojo-indexer` skill for general Torii configuration.
+
+### Configuration
+
+Add token contracts to `[indexing]` using the `ERC20:` or `ERC721:` prefix:
+
+```toml
+# torii.toml
+[indexing]
+contracts = [
+    "ERC20:0xYOUR_GOLD_TOKEN_ADDRESS",
+    "ERC721:0xYOUR_WEAPON_NFT_ADDRESS",
+]
+```
+
+Or via CLI:
+
+```bash
+torii --world 0xYOUR_WORLD \
+  --indexing.contracts "ERC20:0xGOLD_TOKEN" \
+  --indexing.contracts "ERC721:0xWEAPON_NFT"
+```
+
+You can also index well-known tokens on the network:
+
+```toml
+[indexing]
+contracts = [
+    "ERC20:0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7", # ETH
+    "ERC20:0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d", # STRK
+]
+```
+
+## Querying Token Data
+
+Once indexed, three database tables become available:
+- **`tokens`** — metadata (name, symbol, decimals)
+- **`balances`** — per-account balances
+- **`erc_transfers`** — transfer history
+
+### SQL
+
+```sql
+SELECT * FROM tokens;
+SELECT * FROM balances WHERE account_address = '0xPLAYER';
+SELECT * FROM erc_transfers ORDER BY rowid DESC LIMIT 20;
+```
+
+### JavaScript SDK
+
+```typescript
+import { useTokens } from "@dojoengine/sdk/react";
+
+function TokenBalance({ address }: { address: string }) {
+    const { tokens, getBalance, toDecimal } = useTokens({
+        accountAddresses: [address],
+    });
+
+    return (
+        <div>
+            {tokens.map((token, idx) => (
+                <div key={idx}>
+                    {token.symbol}: {toDecimal(token, getBalance(token))}
+                </div>
+            ))}
+        </div>
+    );
 }
 ```
 
-## Best Practices
+## Troubleshooting
 
-- Use Origami library for standard implementations
-- Always check balances before transfers
-- Emit events for all token operations
-- Use u256 for token amounts (large numbers)
-- Check ownership before NFT operations
-- Consider approval mechanics for trading
-- Test with edge cases (zero amounts, non-existent tokens)
+### "Empty tokens/balances tables"
+- Verify the contract address matches what was deployed
+- Check the prefix is correct (`ERC20:` vs `ERC721:`)
+- Ensure the contract implements standard ERC Transfer events
 
-## Testing Tokens
+### "Token not showing in Torii"
+- Restart Torii after adding new contracts
+- Check Torii logs for indexing errors
 
-```cairo
-#[test]
-fn test_gold_transfer() {
-    let mut world = spawn_test_world(...);
-
-    // Mint gold to player1
-    gold_token.mint(player1, 100);
-
-    // Transfer to player2
-    prank(world, player1);
-    gold_token.transfer(player2, 50);
-
-    // Check balances
-    assert(gold_token.balance_of(player1) == 50, 'wrong sender balance');
-    assert(gold_token.balance_of(player2) == 50, 'wrong receiver balance');
-}
-
-#[test]
-fn test_weapon_nft() {
-    let mut world = spawn_test_world(...);
-
-    // Mint weapon to player1
-    let token_id = weapon_nft.mint(player1, 50);
-
-    // Check ownership
-    assert(weapon_nft.owner_of(token_id) == player1, 'wrong owner');
-
-    // Transfer to player2
-    prank(world, player1);
-    weapon_nft.transfer(player2, token_id);
-
-    // Check new owner
-    assert(weapon_nft.owner_of(token_id) == player2, 'transfer failed');
-}
-```
-
-## Next Steps
-
-After implementing tokens:
-1. Test thoroughly with `dojo-test` skill
-2. Deploy with `dojo-deploy` skill
-3. Integrate with client (`dojo-client` skill)
-4. Set up permissions (`dojo-world` skill)
+### "Balance shows 0"
+- Tokens are indexed from transfer events, not storage reads
+- Mint or transfer tokens to generate events Torii can index
 
 ## Related Skills
 
 - **dojo-model**: Token models extend Dojo models
 - **dojo-system**: Token logic in systems
 - **dojo-test**: Test token operations
-- **dojo-review**: Audit token implementation
+- **dojo-deploy**: General world deployment workflow
+- **dojo-indexer**: Full Torii configuration and queries
+- **dojo-client**: Client SDK integration
